@@ -16,6 +16,7 @@ export type UpgradeOptions = ValidationOptions & StandaloneOptions;
 
 export function withDefaults(opts: UpgradeOptions = {}): Required<UpgradeOptions> {
   return {
+    deployer: opts.deployer ?? 'unknown',
     constructorArgs: opts.constructorArgs ?? [],
     timeout: opts.timeout ?? 60e3,
     pollingInterval: opts.pollingInterval ?? 5e3,

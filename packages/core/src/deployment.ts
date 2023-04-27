@@ -23,6 +23,7 @@ export interface Deployment {
 }
 
 export interface DeployOpts {
+  deployer?: string;
   /**
    * Timeout in milliseconds to wait for the transaction confirmation when deploying an implementation contract or proxy admin contract. Use `0` to wait indefinitely.
    */

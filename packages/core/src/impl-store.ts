@@ -1,5 +1,10 @@
 import debug from './utils/debug';
 import { Manifest, ManifestData, ImplDeployment } from './manifest';
+import {
+  ManifestWithDeployer,
+  ManifestData as ManifestWithDeployerData,
+  defaultManifest,
+} from './manifestWithDeployer';
 import { EthereumProvider, isDevelopmentNetwork } from './provider';
 import { Deployment, InvalidDeployment, resumeOrDeploy, waitAndValidateDeployment } from './deployment';
 import { Version } from './version';
@@ -37,56 +42,130 @@ async function fetchOrDeployGeneric<T extends Deployment, U extends T = T>(
   opts?: DeployOpts,
   merge?: boolean,
 ): Promise<U | Deployment> {
-  const manifest = await Manifest.forNetwork(provider);
+  const isWithDeployer = opts?.deployer !== undefined;
+  if (isWithDeployer) {
+    return runWithDeployer(opts?.deployer || '');
+  }
+  return run();
 
-  try {
-    const deployment = await manifest.lockedRun(async () => {
-      debug('fetching deployment of', lens.description);
-      const data = await manifest.read();
-      const deployment = lens(data);
-      if (merge && !deployment.merge) {
-        throw new Error(
-          'fetchOrDeployGeneric was called with merge set to true but the deployment lens does not have a merge function',
-        );
-      }
-
-      const stored = deployment.get();
-      const updated = await resumeOrDeploy(provider, stored, deploy, lens.type, opts, deployment, merge);
-      if (updated !== stored) {
-        if (merge && deployment.merge) {
-          // only check primary addresses for clashes, since the address could already exist in an allAddresses field
-          // but the above updated and stored objects are different instances representing the same entry
-          await checkForAddressClash(provider, data, updated, false);
-          deployment.merge(updated);
-        } else {
-          await checkForAddressClash(provider, data, updated, true);
-          deployment.set(updated);
-        }
-        await manifest.write(data);
-      }
-      return updated;
-    });
-
-    await waitAndValidateDeployment(provider, deployment, lens.type, opts);
-
-    return deployment;
-  } catch (e) {
-    // If we run into a deployment error, we remove it from the manifest.
-    if (e instanceof InvalidDeployment) {
-      await manifest.lockedRun(async () => {
-        assert(e instanceof InvalidDeployment); // Not sure why this is needed but otherwise doesn't type
+  async function run() {
+    const manifest = await Manifest.forNetwork(provider);
+    try {
+      const deployment = await manifest.lockedRun(async () => {
+        debug('fetching deployment of', lens.description);
         const data = await manifest.read();
         const deployment = lens(data);
+        if (merge && !deployment.merge) {
+          throw new Error(
+            'fetchOrDeployGeneric was called with merge set to true but the deployment lens does not have a merge function',
+          );
+        }
+
         const stored = deployment.get();
-        if (stored?.txHash === e.deployment.txHash) {
-          deployment.set(undefined);
+        const updated = await resumeOrDeploy(provider, stored, deploy, lens.type, opts, deployment, merge);
+        if (updated !== stored) {
+          if (merge && deployment.merge) {
+            // only check primary addresses for clashes, since the address could already exist in an allAddresses field
+            // but the above updated and stored objects are different instances representing the same entry
+            await checkForAddressClash(provider, data, updated, false);
+            deployment.merge(updated);
+          } else {
+            await checkForAddressClash(provider, data, updated, true);
+            deployment.set(updated);
+          }
           await manifest.write(data);
         }
+        return updated;
       });
-      e.removed = true;
-    }
 
-    throw e;
+      await waitAndValidateDeployment(provider, deployment, lens.type, opts);
+
+      return deployment;
+    } catch (e) {
+      // If we run into a deployment error, we remove it from the manifest.
+      if (e instanceof InvalidDeployment) {
+        await manifest.lockedRun(async () => {
+          assert(e instanceof InvalidDeployment); // Not sure why this is needed but otherwise doesn't type
+          const data = await manifest.read();
+          const deployment = lens(data);
+          const stored = deployment.get();
+          if (stored?.txHash === e.deployment.txHash) {
+            deployment.set(undefined);
+            await manifest.write(data);
+          }
+        });
+        e.removed = true;
+      }
+
+      throw e;
+    }
+  }
+
+  async function runWithDeployer(deployer: string) {
+    const manifest = await ManifestWithDeployer.forNetwork(provider, deployer);
+    try {
+      const deployment = await manifest.lockedRun(async () => {
+        debug('fetching deployment of', lens.description);
+        const allData = await manifest.readAll();
+        const index = allData.findIndex(d => d.deployer === deployer);
+        let data: ManifestWithDeployerData;
+        if (index === -1) {
+          data = defaultManifest()[0];
+        } else {
+          data = allData[index];
+        }
+        const deployment = lens(data);
+        if (merge && !deployment.merge) {
+          throw new Error(
+            'fetchOrDeployGeneric was called with merge set to true but the deployment lens does not have a merge function',
+          );
+        }
+
+        const stored = deployment.get();
+        const updated = await resumeOrDeploy(provider, stored, deploy, lens.type, opts, deployment, merge);
+        if (updated !== stored) {
+          if (merge && deployment.merge) {
+            // only check primary addresses for clashes, since the address could already exist in an allAddresses field
+            // but the above updated and stored objects are different instances representing the same entry
+            await checkForAddressClash(provider, data, updated, false);
+            deployment.merge(updated);
+          } else {
+            await checkForAddressClash(provider, data, updated, true);
+            deployment.set(updated);
+          }
+          allData[index] = data;
+          await manifest.write(allData);
+        }
+        return updated;
+      });
+
+      await waitAndValidateDeployment(provider, deployment, lens.type, opts);
+
+      return deployment;
+    } catch (e) {
+      // If we run into a deployment error, we remove it from the manifest.
+      if (e instanceof InvalidDeployment) {
+        await manifest.lockedRun(async () => {
+          assert(e instanceof InvalidDeployment); // Not sure why this is needed but otherwise doesn't type
+          const allData = await manifest.readAll();
+          const index = allData.findIndex(d => d.deployer === deployer);
+          if (index === -1) {
+            throw new Error(`No deployment found for deployer ${deployer}`);
+          }
+          const data = allData[index];
+          const deployment = lens(data);
+          const stored = deployment.get();
+          if (stored?.txHash === e.deployment.txHash) {
+            deployment.set(undefined);
+            allData[index] = data;
+            await manifest.write(allData);
+          }
+        });
+        e.removed = true;
+      }
+
+      throw e;
+    }
   }
 }
 

@@ -19,6 +19,8 @@ export * from './deployment';
 export * from './link-refs';
 export * from './error';
 
+export { ManifestData as ManifestWithDeployerData, ManifestWithDeployer } from './manifestWithDeployer';
+
 export {
   ManifestData,
   ImplDeployment,

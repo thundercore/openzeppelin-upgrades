@@ -8,6 +8,7 @@ import { lazyObject } from 'hardhat/plugins';
 import { HardhatConfig } from 'hardhat/types';
 import { getImplementationAddressFromBeacon, silenceWarnings, SolcInput } from '@openzeppelin/upgrades-core';
 import type { DeployFunction } from './deploy-proxy';
+import { DeployWithDeployer, makeDeployProxyWithDeployer } from './deploy-proxy-with-deployer';
 import type { PrepareUpgradeFunction } from './prepare-upgrade';
 import type { UpgradeFunction } from './upgrade-proxy';
 import type { DeployBeaconFunction } from './deploy-beacon';
@@ -22,6 +23,7 @@ import { DeployAdminFunction, makeDeployProxyAdmin } from './deploy-proxy-admin'
 
 export interface HardhatUpgrades {
   deployProxy: DeployFunction;
+  deployProxyWithDeployer: DeployWithDeployer;
   upgradeProxy: UpgradeFunction;
   validateImplementation: ValidateImplementationFunction;
   validateUpgrade: ValidateUpgradeFunction;
@@ -109,6 +111,7 @@ extendEnvironment(hre => {
     return {
       silenceWarnings,
       deployProxy: makeDeployProxy(hre),
+      deployProxyWithDeployer: makeDeployProxyWithDeployer(hre),
       upgradeProxy: makeUpgradeProxy(hre),
       validateImplementation: makeValidateImplementation(hre),
       validateUpgrade: makeValidateUpgrade(hre),
